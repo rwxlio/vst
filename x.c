@@ -14,6 +14,7 @@
 #include <X11/keysym.h>
 #include <X11/Xft/Xft.h>
 #include <X11/XKBlib.h>
+#include <X11/Xresource.h>
 
 char *argv0;
 #include "arg.h"
@@ -317,7 +318,9 @@ zoomabs(const Arg *arg)
 {
 	xunloadfonts();
 	xloadfonts(getusedfont(), arg->f);
+	fonts_count--;
 	xloadsparefonts();
+	fonts_count++;
 	cresize(0, 0);
 	redraw();
 	xhints();
@@ -2126,6 +2129,138 @@ run(void)
 	}
 }
 
+#define XRESOURCE_LOAD_META(NAME)                                       \
+        if(!XrmGetResource(xrdb, "st." NAME, "st." NAME, &type, &ret))  \
+                XrmGetResource(xrdb, "*." NAME, "*." NAME, &type, &ret); \
+        if (ret.addr != NULL && !strncmp("String", type, 64))
+
+#define XRESOURCE_LOAD_STRING(NAME, DST)        \
+        XRESOURCE_LOAD_META(NAME)               \
+                DST = ret.addr;
+
+#define XRESOURCE_LOAD_CHAR(NAME, DST)          \
+        XRESOURCE_LOAD_META(NAME)               \
+                DST = ret.addr[0];
+
+#define XRESOURCE_LOAD_INTEGER(NAME, DST)               \
+        XRESOURCE_LOAD_META(NAME)                       \
+                DST = strtoul(ret.addr, NULL, 10);
+
+#define XRESOURCE_LOAD_FLOAT(NAME, DST)         \
+        XRESOURCE_LOAD_META(NAME)               \
+                DST = strtof(ret.addr, NULL);
+
+void
+xrdb_load(void)
+{
+        /* XXX */
+        char *xrm;
+        char *type;
+        XrmDatabase xrdb;
+        XrmValue ret;
+        Display *dpy;
+
+        if(!(dpy = XOpenDisplay(NULL)))
+                die("Can't open display\n");
+
+        XrmInitialize();
+        xrm = XResourceManagerString(dpy);
+	if (xrm != NULL) {
+                xrdb = XrmGetStringDatabase(xrm);
+
+                /* handling colors here without macros to do via loop. */
+                int i = 0;
+                char loadValue[12] = "";
+                for (i = 0; i < 256; i++)
+                {
+                        sprintf(loadValue, "%s%d", "st.color", i);
+
+                        if(!XrmGetResource(xrdb, loadValue, loadValue, &type, &ret))
+                        {
+                                sprintf(loadValue, "%s%d", "*.color", i);
+                                if (!XrmGetResource(xrdb, loadValue, loadValue, &type, &ret))
+                                        /* reset if not found (unless in range for defaults). */
+                                        if (i > 15)
+                                                colorname[i] = NULL;
+                        }
+
+                        if (ret.addr != NULL && !strncmp("String", type, 64))
+                                colorname[i] = ret.addr;
+                }
+
+                XRESOURCE_LOAD_META("font2") {
+                        int count = 0, endchar = fonts_count = sizeof(font2) / sizeof(*font2);
+                        for (int i = 0; ret.addr[i]; i++) if (ret.addr[i] == ',') count++;
+                        if (count > 0)
+                        {
+                                for (int i = 0; i <= count; i++)
+                                {
+                                        if (i == 0) font2[endchar + i] = strtok(ret.addr, ",");
+                                        else font2[endchar + i] = strtok(NULL, ",");
+                                        fonts_count++;
+                                }
+                                font2[endchar + count + 1] = '\0';
+                        } else if (ret.addr) {
+                                font2[endchar] = ret.addr;
+                                fonts_count++;
+                        }
+		}
+
+		XRESOURCE_LOAD_STRING("foreground", colorname[defaultfg]);
+                XRESOURCE_LOAD_STRING("background", colorname[defaultbg]);
+                XRESOURCE_LOAD_STRING("cursorfg", colorname[defaultcs])
+                else {
+                  // this looks confusing because we are chaining off of the if
+                  // in the macro. probably we should be wrapping everything blocks
+                  // so this isn't possible...
+                  defaultcs = defaultfg;
+                }
+                XRESOURCE_LOAD_STRING("cursorbg", colorname[defaultrcs])
+                else {
+                  // see above.
+                  defaultrcs = defaultbg;
+                }
+
+                XRESOURCE_LOAD_STRING("font", font);
+                XRESOURCE_LOAD_STRING("termname", termname);
+
+                XRESOURCE_LOAD_INTEGER("blinktimeout", blinktimeout);
+                XRESOURCE_LOAD_INTEGER("bellvolume", bellvolume);
+                XRESOURCE_LOAD_INTEGER("borderpx", borderpx);
+                XRESOURCE_LOAD_INTEGER("cursorshape", cursorshape);
+                XRESOURCE_LOAD_FLOAT("cwscale", cwscale);
+                XRESOURCE_LOAD_FLOAT("chscale", chscale);
+	}
+
+        XFlush(dpy);
+        XCloseDisplay(dpy);
+}
+
+void
+reload(int sig)
+{
+        signal(SIGUSR1, reload);
+
+        if (sig == -1) {
+                return;
+        }
+
+        xrdb_load();
+
+        /* colors, fonts */
+        xloadcols();
+        xunloadfonts();
+        xloadfonts(getusedfont(), 0);
+	xloadsparefonts();
+        xsetcursor(cursorshape);
+
+        /* pretend the window just got resized */
+        cresize(win.w, win.h);
+        redraw();
+        /* triggers re-render if we're visible. */
+        ttywrite("\033[O", 3, 1);
+}
+
 void
 usage(void)
 {
@@ -2197,6 +2332,7 @@ run:
 	if (!opt_title)
 		opt_title = (opt_line || !opt_cmd) ? "st" : opt_cmd[0];
 
+	xrdb_load();
 	setlocale(LC_CTYPE, "");
 	XSetLocaleModifiers("");
 	cols = MAX(cols, 1);
@@ -2205,6 +2341,7 @@ run:
 	xinit(cols, rows);
 	xsetenv();
 	selinit();
+	reload(-1);
 	run();
 
 	return 0;
