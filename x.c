@@ -250,6 +250,11 @@ static int frccap = 0;
 static double usedfontsize = 0;
 static double defaultfontsize = 0;
 
+/* declared in config.h */
+extern int disablebold;
+extern int disableitalic;
+extern int disableroman;
+
 static char *opt_class = NULL;
 static char **opt_cmd  = NULL;
 static char *opt_embed = NULL;
@@ -1059,17 +1064,20 @@ xloadfonts(const char *fontstr, double fontsize)
 	win.ch = ceilf(dc.font.height * chscale);
 
 	FcPatternDel(pattern, FC_SLANT);
-	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
+	if (!disableitalic)
+		FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
 	if (xloadfont(&dc.ifont, pattern))
 		die("can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_WEIGHT);
-	FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD);
+	if (!disablebold)
+	    FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD);
 	if (xloadfont(&dc.ibfont, pattern))
 		die("can't open font %s\n", fontstr);
 
 	FcPatternDel(pattern, FC_SLANT);
-	FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ROMAN);
+	if (!disableroman)
+	    FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ROMAN);
 	if (xloadfont(&dc.bfont, pattern))
 		die("can't open font %s\n", fontstr);
 
@@ -2247,6 +2255,9 @@ xrdb_load(void)
                 XRESOURCE_LOAD_INTEGER("bellvolume", bellvolume);
                 XRESOURCE_LOAD_INTEGER("borderpx", borderpx);
                 XRESOURCE_LOAD_INTEGER("cursorshape", cursorshape);
+                XRESOURCE_LOAD_INTEGER("disablebold", disablebold);
+                XRESOURCE_LOAD_INTEGER("disableitalic", disableitalic);
+                XRESOURCE_LOAD_INTEGER("disableroman", disableroman);
                 XRESOURCE_LOAD_FLOAT("cwscale", cwscale);
                 XRESOURCE_LOAD_FLOAT("chscale", chscale);
                 XRESOURCE_LOAD_FLOAT("opacity", alpha);
